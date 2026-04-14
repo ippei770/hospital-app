@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>病院訪問管理アプリ</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#2c7be5">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="病院管理">
+  <link rel="apple-touch-icon" href="icon-192.svg">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Hiragino Sans', 'Meiryo', sans-serif;
+      background: #f0f4f8;
+      color: #333;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: linear-gradient(135deg, #2c7be5, #1a56c4);
+      color: white;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 700; }
+    header span { font-size: 1.4rem; }
+
+    .tabs {
+      display: flex;
+      background: #fff;
+      border-bottom: 2px solid #e0e8f0;
+      flex-shrink: 0;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      background: none;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #888;
+      cursor: pointer;
+      transition: all 0.2s;
+      border-bottom: 3px solid transparent;
+    }
+    .tab-btn.active {
+      color: #2c7be5;
+      border-bottom-color: #2c7be5;
+      background: #f5f9ff;
+    }
+    .tab-btn:hover:not(.active) { background: #f8f8f8; }
+
+    .tab-content { display: none; flex: 1; overflow: hidden; }
+    .tab-content.active { display: flex; flex-direction: column; }
+
+    /* MAP TAB */
+    #map-container { position: relative; flex: 1; }
+    #map { width: 100%; height: 100%; }
+
+    .map-hint {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      z-index: 500;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* SEARCH BAR */
+    .search-bar {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      z-index: 500;
+    }
+    .search-input-row {
+      display: flex;
+      gap: 6px;
+    }
+    .search-input-row input {
+      flex: 1;
+      padding: 10px 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      font-family: inherit;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      outline: none;
+    }
+
+    /* Nominatim 検索候補ドロップダウン */
+    .search-suggestions {
+      background: white;
+      border-radius: 10px;
+      margin-top: 4px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+      overflow: hidden;
+      display: none;
+    }
+    .search-suggestions.open { display: block; }
+    .suggestion-item {
+      padding: 10px 14px;
+      font-size: 0.88rem;
+      cursor: pointer;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .suggestion-item:last-child { border-bottom: none; }
+    .suggestion-item:hover { background: #f0f6ff; }
+    .suggestion-item .sug-name { font-weight: 600; color: #1a3a5c; }
+    .suggestion-item .sug-addr { font-size: 0.78rem; color: #888; margin-top: 2px; }
+    .suggestion-loading {
+      padding: 10px 14px;
+      font-size: 0.85rem;
+      color: #888;
+    }
+
+    /* LIST TAB */
+    #list-tab { overflow-y: auto; padding: 16px; }
+
+    .list-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .list-header h2 { font-size: 1rem; color: #555; }
+
+    .visit-count {
+      background: #2c7be5;
+      color: white;
+      font-size: 0.75rem;
+      padding: 2px 10px;
+      border-radius: 12px;
+    }
+
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .filter-bar select, .filter-bar input {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      background: white;
+    }
+
+    .visit-card {
+      background: white;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      border-left: 4px solid #2c7be5;
+      position: relative;
+    }
+    .visit-card .hospital-name {
+      font-weight: 700;
+      font-size: 1rem;
+      color: #1a3a5c;
+      margin-bottom: 6px;
+    }
+    .visit-card .visit-meta {
+      font-size: 0.82rem;
+      color: #666;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .visit-card .delete-visit {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: none;
+      border: none;
+      color: #ccc;
+      cursor: pointer;
+      font-size: 1.1rem;
+      transition: color 0.2s;
+    }
+    .visit-card .delete-visit:hover { color: #e53e3e; }
+    .visit-card .notes-text {
+      font-size: 0.82rem;
+      color: #888;
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid #f0f0f0;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #aaa;
+    }
+    .empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
+    .empty-state p { font-size: 0.9rem; }
+
+    /* MODALS */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+
+    .modal {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+      animation: slideUp 0.2s ease;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .modal h3 {
+      font-size: 1.1rem;
+      margin-bottom: 16px;
+      color: #1a3a5c;
+    }
+
+    .form-group { margin-bottom: 14px; }
+    .form-group label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 5px;
+    }
+    .form-group input, .form-group textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid #dde3ea;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-family: inherit;
+      transition: border-color 0.2s;
+    }
+    .form-group input:focus, .form-group textarea:focus {
+      outline: none;
+      border-color: #2c7be5;
+    }
+    .form-group textarea { resize: vertical; min-height: 60px; }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .btn {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary { background: #2c7be5; color: white; }
+    .btn-primary:hover { background: #1a56c4; }
+    .btn-secondary { background: #f0f4f8; color: #555; }
+    .btn-secondary:hover { background: #e0e8f0; }
+
+    /* Leaflet ポップアップ内ボタン */
+    .popup-wrap { min-width: 160px; }
+    .popup-hospital-name { font-weight: 700; font-size: 1rem; color: #1a3a5c; margin-bottom: 4px; }
+    .popup-visit-count { font-size: 0.8rem; color: #888; margin-bottom: 10px; }
+    .popup-btn {
+      display: block; width: 100%; padding: 7px; margin-top: 6px;
+      border: none; border-radius: 6px; font-size: 0.82rem; font-weight: 600;
+      cursor: pointer; transition: all 0.2s;
+    }
+    .popup-btn-primary { background: #2c7be5; color: white; }
+    .popup-btn-primary:hover { background: #1a56c4; }
+    .popup-btn-danger { background: #fff0f0; color: #e53e3e; }
+    .popup-btn-danger:hover { background: #ffe0e0; }
+
+    /* 常時表示ツールチップ（吹き出し） */
+    .leaflet-tooltip.marker-label {
+      background: #1a3a5c;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-family: 'Hiragino Sans', 'Meiryo', sans-serif;
+      font-size: 0.72rem;
+      line-height: 1.5;
+      white-space: nowrap;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      pointer-events: none;
+    }
+    .leaflet-tooltip.marker-label::before {
+      border-top-color: #1a3a5c;
+    }
+    .marker-label-last { opacity: 0.85; }
+    .marker-label-count { font-weight: 700; }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(60px);
+      background: #1a3a5c;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      z-index: 9999;
+      transition: transform 0.3s;
+      white-space: nowrap;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+<header>
+  <span>🏥</span>
+  <h1>病院訪問管理アプリ</h1>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('map')">🗺️ 地図</button>
+  <button class="tab-btn" onclick="switchTab('list')">📋 訪問一覧</button>
+</div>
+
+<!-- MAP TAB -->
+<div id="map-tab" class="tab-content active">
+  <div id="map-container">
+    <div id="map"></div>
+    <div class="search-bar">
+      <div class="search-input-row">
+        <input type="text" id="search-input" placeholder="🔍 病院名で検索して登録..." autocomplete="off" />
+      </div>
+      <div class="search-suggestions" id="search-suggestions"></div>
+    </div>
+    <div class="map-hint">地図をタップしても病院を登録できます</div>
+  </div>
+</div>
+
+<!-- LIST TAB -->
+<div id="list-tab" class="tab-content">
+  <div style="padding: 16px; background: white; border-bottom: 1px solid #eee;">
+    <div class="list-header">
+      <h2>訪問記録</h2>
+      <span class="visit-count" id="total-count">0件</span>
+    </div>
+    <div class="filter-bar">
+      <select id="filter-hospital" onchange="renderList()">
+        <option value="">すべての病院</option>
+      </select>
+      <input type="month" id="filter-month" onchange="renderList()">
+    </div>
+  </div>
+  <div id="visit-list" style="padding: 16px; overflow-y: auto; flex: 1;"></div>
+</div>
+
+<!-- MODAL: 病院登録 -->
+<div class="modal-overlay" id="hospital-modal">
+  <div class="modal">
+    <h3>🏥 病院を登録</h3>
+    <div class="form-group">
+      <label>病院名 <span style="color:red">*</span></label>
+      <input type="text" id="hospital-name-input" placeholder="例：○○総合病院" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('hospital-modal')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveHospital()">登録する</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: 訪問記録登録 -->
+<div class="modal-overlay" id="visit-modal">
+  <div class="modal">
+    <h3>📝 訪問記録を追加</h3>
+    <div class="form-group">
+      <label>病院名</label>
+      <input type="text" id="visit-hospital-display" readonly style="background:#f5f5f5;color:#666;" />
+    </div>
+    <div class="form-group">
+      <label>訪問日 <span style="color:red">*</span></label>
+      <input type="date" id="visit-date-input" />
+    </div>
+    <div class="form-group">
+      <label>面会者 <span style="color:red">*</span></label>
+      <input type="text" id="visit-visitor-input" placeholder="例：山田 太郎" />
+    </div>
+    <div class="form-group">
+      <label>メモ（任意）</label>
+      <textarea id="visit-notes-input" placeholder="診察内容、持ち物など..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('visit-modal')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveVisit()">記録する</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  // ===================== DATA =====================
+  let hospitals = JSON.parse(localStorage.getItem('hospitals') || '[]');
+  let visits    = JSON.parse(localStorage.getItem('visits')    || '[]');
+
+  function saveData() {
+    localStorage.setItem('hospitals', JSON.stringify(hospitals));
+    localStorage.setItem('visits',    JSON.stringify(visits));
+  }
+  function genId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2);
+  }
+
+  // ===================== MAP (Leaflet + OpenStreetMap) =====================
+  const map = L.map('map', { zoomControl: true }).setView([35.6814, 139.7670], 13);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+  }).addTo(map);
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(pos => {
+      map.setView([pos.coords.latitude, pos.coords.longitude], 14);
+    });
+  }
+
+  let markers = {};
+  let tooltips = {};
+  let pendingLatLng = null;
+
+  function getVisitStats(hospitalId) {
+    const hvs = visits.filter(v => v.hospitalId === hospitalId);
+    if (!hvs.length) return null;
+    const sorted = [...hvs].sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+    const lastVisit = sorted[0].visitDate;
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - 3);
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+    const recentCount = hvs.filter(v => v.visitDate >= cutoffStr).length;
+    return { lastVisit, recentCount };
+  }
+
+  function buildTooltipContent(hospitalId) {
+    const stats = getVisitStats(hospitalId);
+    if (!stats) return null;
+    const [, m, d] = stats.lastVisit.split('-');
+    return `<span class="marker-label-last">最終: ${parseInt(m)}/${parseInt(d)}</span><br><span class="marker-label-count">3ヶ月: ${stats.recentCount}回</span>`;
+  }
+
+  const hospitalIcon = L.divIcon({
+    className: '',
+    html: `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="46" viewBox="0 0 36 46">
+      <path d="M18 0C8.059 0 0 8.059 0 18c0 13.5 18 28 18 28S36 31.5 36 18C36 8.059 27.941 0 18 0z" fill="#2c7be5"/>
+      <circle cx="18" cy="18" r="12" fill="white"/>
+      <text x="18" y="23" text-anchor="middle" font-size="14">🏥</text>
+    </svg>`,
+    iconSize: [36, 46],
+    iconAnchor: [18, 46],
+    popupAnchor: [0, -46],
+  });
+
+  map.on('click', (e) => {
+    pendingLatLng = { lat: e.latlng.lat, lng: e.latlng.lng };
+    document.getElementById('hospital-name-input').value = '';
+    openModal('hospital-modal');
+    setTimeout(() => document.getElementById('hospital-name-input').focus(), 100);
+  });
+
+  function buildPopupContent(hospital) {
+    const count = visits.filter(v => v.hospitalId === hospital.id).length;
+    return `<div class="popup-wrap">
+      <div class="popup-hospital-name">${escHtml(hospital.name)}</div>
+      <div class="popup-visit-count">訪問回数: ${count}回</div>
+      <button class="popup-btn popup-btn-primary" onclick="openVisitModal('${hospital.id}')">＋ 訪問を記録</button>
+      <button class="popup-btn popup-btn-danger" onclick="deleteHospital('${hospital.id}')">🗑 病院を削除</button>
+    </div>`;
+  }
+
+  function addMarker(hospital) {
+    const marker = L.marker([hospital.lat, hospital.lng], { icon: hospitalIcon })
+      .addTo(map)
+      .bindPopup(buildPopupContent(hospital), { maxWidth: 220 });
+    markers[hospital.id] = marker;
+
+    const tooltipContent = buildTooltipContent(hospital.id);
+    if (tooltipContent) {
+      const tooltip = L.tooltip({
+        permanent: true, direction: 'top', offset: [0, -48], className: 'marker-label',
+      }).setContent(tooltipContent);
+      marker.bindTooltip(tooltip);
+      tooltips[hospital.id] = tooltip;
+    }
+  }
+
+  function refreshMarkerPopup(hospitalId) {
+    const hospital = hospitals.find(h => h.id === hospitalId);
+    if (!hospital || !markers[hospitalId]) return;
+    markers[hospitalId].setPopupContent(buildPopupContent(hospital));
+
+    const content = buildTooltipContent(hospitalId);
+    if (content) {
+      if (tooltips[hospitalId]) {
+        tooltips[hospitalId].setContent(content);
+      } else {
+        const tooltip = L.tooltip({
+          permanent: true, direction: 'top', offset: [0, -48], className: 'marker-label',
+        }).setContent(content);
+        markers[hospitalId].bindTooltip(tooltip);
+        tooltips[hospitalId] = tooltip;
+      }
+    }
+  }
+
+  hospitals.forEach(addMarker);
+
+  // ===================== SEARCH (Overpass + Nominatim) =====================
+  const searchInput = document.getElementById('search-input');
+  const suggestionsBox = document.getElementById('search-suggestions');
+  let searchTimer = null;
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    const q = searchInput.value.trim();
+    if (!q) { hideSuggestions(); return; }
+    suggestionsBox.innerHTML = '<div class="suggestion-loading">検索中...</div>';
+    suggestionsBox.classList.add('open');
+    searchTimer = setTimeout(() => searchPlaces(q), 600);
+  });
+
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideSuggestions();
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-bar')) hideSuggestions();
+  });
+
+  async function searchPlaces(query) {
+    try {
+      const overpassResults = await searchOverpass(query);
+      if (overpassResults.length > 0) { showSuggestions(overpassResults); return; }
+      const nominatimResults = await searchNominatim(query);
+      if (nominatimResults.length > 0) {
+        showSuggestions(nominatimResults);
+      } else {
+        suggestionsBox.innerHTML = '<div class="suggestion-loading">見つかりませんでした。地図をタップして登録できます</div>';
+      }
+    } catch (e) {
+      suggestionsBox.innerHTML = '<div class="suggestion-loading">検索に失敗しました</div>';
+    }
+  }
+
+  async function searchOverpass(query) {
+    const center = map.getCenter();
+    const bboxNear = `${center.lat-1},${center.lng-1},${center.lat+1},${center.lng+1}`;
+    const escaped = query.replace(/"/g, '\\"');
+    const overpassQuery = `[out:json][timeout:12];
+(
+  node["name"~"${escaped}",i]["amenity"~"hospital|clinic|dentist|doctors|pharmacy"](${bboxNear});
+  way["name"~"${escaped}",i]["amenity"~"hospital|clinic|dentist|doctors|pharmacy"](${bboxNear});
+  node["name"~"${escaped}",i]["amenity"~"hospital|clinic|dentist|doctors|pharmacy"](24.0,122.0,46.0,146.0);
+  way["name"~"${escaped}",i]["amenity"~"hospital|clinic|dentist|doctors|pharmacy"](24.0,122.0,46.0,146.0);
+);
+out center 8;`;
+    const res = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: overpassQuery });
+    const data = await res.json();
+    const seen = new Set();
+    return data.elements
+      .map(el => ({
+        lat: el.lat ?? el.center?.lat, lng: el.lon ?? el.center?.lon,
+        name: el.tags?.name || query,
+        addr: [el.tags?.['addr:city'], el.tags?.['addr:suburb']].filter(Boolean).join(' '),
+      }))
+      .filter(r => r.lat && r.lng && !seen.has(r.name) && seen.add(r.name))
+      .sort((a, b) => dist(a, center) - dist(b, center))
+      .slice(0, 6);
+  }
+
+  async function searchNominatim(query) {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=jp&limit=5&addressdetails=1&namedetails=1`;
+    const res = await fetch(url, { headers: { 'Accept-Language': 'ja' } });
+    const data = await res.json();
+    return data.map(item => ({
+      lat: parseFloat(item.lat), lng: parseFloat(item.lon),
+      name: item.namedetails?.name || item.display_name.split(',')[0],
+      addr: item.display_name,
+    }));
+  }
+
+  function dist(a, center) {
+    const dlat = a.lat - center.lat, dlng = a.lng - center.lng;
+    return dlat * dlat + dlng * dlng;
+  }
+
+  function showSuggestions(results) {
+    suggestionsBox.innerHTML = results.map(item =>
+      `<div class="suggestion-item" onclick="selectSuggestion(${item.lat}, ${item.lng}, '${escAttr(item.name)}')">
+        <div class="sug-name">${escHtml(item.name)}</div>
+        ${item.addr ? `<div class="sug-addr">${escHtml(item.addr)}</div>` : ''}
+      </div>`
+    ).join('');
+  }
+
+  function selectSuggestion(lat, lng, name) {
+    hideSuggestions();
+    searchInput.value = '';
+    map.setView([lat, lng], 16);
+    pendingLatLng = { lat: parseFloat(lat), lng: parseFloat(lng) };
+    document.getElementById('hospital-name-input').value = name;
+    setTimeout(() => {
+      openModal('hospital-modal');
+      const nameInput = document.getElementById('hospital-name-input');
+      nameInput.focus();
+      nameInput.select();
+    }, 200);
+  }
+
+  function hideSuggestions() {
+    suggestionsBox.classList.remove('open');
+    suggestionsBox.innerHTML = '';
+  }
+
+  // ===================== HOSPITAL CRUD =====================
+  function saveHospital() {
+    const name = document.getElementById('hospital-name-input').value.trim();
+    if (!name) { showToast('病院名を入力してください'); return; }
+    if (!pendingLatLng) return;
+    const hospital = { id: genId(), name, lat: pendingLatLng.lat, lng: pendingLatLng.lng };
+    hospitals.push(hospital);
+    saveData();
+    addMarker(hospital);
+    closeModal('hospital-modal');
+    showToast(`「${name}」を登録しました`);
+    updateFilterOptions();
+    renderList();
+    setTimeout(() => { if (markers[hospital.id]) markers[hospital.id].openPopup(); }, 300);
+  }
+
+  function deleteHospital(hospitalId) {
+    const hospital = hospitals.find(h => h.id === hospitalId);
+    if (!hospital) return;
+    if (!confirm(`「${hospital.name}」と関連する訪問記録をすべて削除しますか？`)) return;
+    hospitals = hospitals.filter(h => h.id !== hospitalId);
+    visits    = visits.filter(v => v.hospitalId !== hospitalId);
+    saveData();
+    if (markers[hospitalId]) { markers[hospitalId].remove(); delete markers[hospitalId]; }
+    if (tooltips[hospitalId]) { delete tooltips[hospitalId]; }
+    showToast('削除しました');
+    updateFilterOptions();
+    renderList();
+  }
+
+  // ===================== VISIT CRUD =====================
+  let currentHospitalId = null;
+
+  function openVisitModal(hospitalId) {
+    currentHospitalId = hospitalId;
+    const hospital = hospitals.find(h => h.id === hospitalId);
+    if (!hospital) return;
+    document.getElementById('visit-hospital-display').value = hospital.name;
+    document.getElementById('visit-date-input').value       = today();
+    document.getElementById('visit-visitor-input').value    = '';
+    document.getElementById('visit-notes-input').value      = '';
+    openModal('visit-modal');
+    setTimeout(() => document.getElementById('visit-visitor-input').focus(), 100);
+  }
+
+  function saveVisit() {
+    const date    = document.getElementById('visit-date-input').value;
+    const visitor = document.getElementById('visit-visitor-input').value.trim();
+    const notes   = document.getElementById('visit-notes-input').value.trim();
+    if (!date)    { showToast('訪問日を入力してください'); return; }
+    if (!visitor) { showToast('面会者を入力してください'); return; }
+    const hospital = hospitals.find(h => h.id === currentHospitalId);
+    visits.push({ id: genId(), hospitalId: currentHospitalId, hospitalName: hospital ? hospital.name : '不明', visitDate: date, visitor, notes });
+    visits.sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+    saveData();
+    closeModal('visit-modal');
+    refreshMarkerPopup(currentHospitalId);
+    showToast('訪問記録を登録しました');
+    updateFilterOptions();
+    renderList();
+  }
+
+  function deleteVisit(visitId) {
+    if (!confirm('この訪問記録を削除しますか？')) return;
+    const visit = visits.find(v => v.id === visitId);
+    visits = visits.filter(v => v.id !== visitId);
+    saveData();
+    if (visit) refreshMarkerPopup(visit.hospitalId);
+    showToast('削除しました');
+    renderList();
+  }
+
+  // ===================== LIST VIEW =====================
+  function renderList() {
+    const filterHospital = document.getElementById('filter-hospital').value;
+    const filterMonth    = document.getElementById('filter-month').value;
+    let filtered = [...visits];
+    if (filterHospital) filtered = filtered.filter(v => v.hospitalId === filterHospital);
+    if (filterMonth)    filtered = filtered.filter(v => v.visitDate.startsWith(filterMonth));
+    document.getElementById('total-count').textContent = `${filtered.length}件`;
+    const container = document.getElementById('visit-list');
+    if (!filtered.length) {
+      container.innerHTML = `<div class="empty-state"><div class="icon">📋</div><p>訪問記録がありません<br>地図から病院を選んで記録しましょう</p></div>`;
+      return;
+    }
+    container.innerHTML = filtered.map(v => `
+      <div class="visit-card">
+        <div class="hospital-name">🏥 ${escHtml(v.hospitalName)}</div>
+        <div class="visit-meta">
+          <span>📅 ${formatDate(v.visitDate)}</span>
+          <span>👤 ${escHtml(v.visitor)}</span>
+        </div>
+        ${v.notes ? `<div class="notes-text">📝 ${escHtml(v.notes)}</div>` : ''}
+        <button class="delete-visit" onclick="deleteVisit('${v.id}')" title="削除">✕</button>
+      </div>`).join('');
+  }
+
+  function updateFilterOptions() {
+    const sel = document.getElementById('filter-hospital');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">すべての病院</option>';
+    hospitals.forEach(h => {
+      const opt = document.createElement('option');
+      opt.value = h.id; opt.textContent = h.name;
+      sel.appendChild(opt);
+    });
+    sel.value = current;
+  }
+
+  // ===================== UTILS =====================
+  function today() { return new Date().toISOString().split('T')[0]; }
+  function formatDate(s) {
+    if (!s) return '';
+    const [y, m, d] = s.split('-');
+    return `${y}年${m}月${d}日`;
+  }
+  function escHtml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function escAttr(str) {
+    return String(str).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+  }
+  function openModal(id)  { document.getElementById(id).classList.add('open'); }
+  function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+  document.querySelectorAll('.modal-overlay').forEach(el => {
+    el.addEventListener('click', e => { if (e.target === el) closeModal(el.id); });
+  });
+  let toastTimer;
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+  }
+  function switchTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach((btn, i) => {
+      btn.classList.toggle('active', (i === 0 && tab === 'map') || (i === 1 && tab === 'list'));
+    });
+    document.getElementById('map-tab').classList.toggle('active', tab === 'map');
+    document.getElementById('list-tab').classList.toggle('active', tab === 'list');
+    if (tab === 'map') { setTimeout(() => map.invalidateSize(), 100); }
+    else { renderList(); }
+  }
+
+  updateFilterOptions();
+  renderList();
+
+  // ===================== SERVICE WORKER =====================
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js');
+  }
+</script>
+
+</body>
+</html>
