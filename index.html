@@ -628,55 +628,80 @@
   });
 
   async function searchPlaces(query) {
-    try {
-      const overpassResults = await searchOverpass(query);
-      if (overpassResults.length > 0) { showSuggestions(overpassResults); return; }
-      const nominatimResults = await searchNominatim(query);
-      if (nominatimResults.length > 0) {
-        showSuggestions(nominatimResults);
-      } else {
-        suggestionsBox.innerHTML = '<div class="suggestion-loading">見つかりませんでした。地図をタップして登録できます</div>';
-      }
-    } catch (e) {
-      suggestionsBox.innerHTML = '<div class="suggestion-loading">検索に失敗しました</div>';
+    // OverpassとNominatimを並列実行・どちらかが失敗しても継続
+    const [overpassResult, nominatimResult] = await Promise.allSettled([
+      searchOverpass(query),
+      searchNominatim(query),
+    ]);
+    const overpassResults  = overpassResult.status  === 'fulfilled' ? overpassResult.value  : [];
+    const nominatimResults = nominatimResult.status === 'fulfilled' ? nominatimResult.value : [];
+
+    const seen = new Set();
+    const combined = [...overpassResults, ...nominatimResults]
+      .filter(r => r.lat && r.lng && !seen.has(r.name) && seen.add(r.name))
+      .slice(0, 8);
+
+    if (combined.length > 0) {
+      showSuggestions(combined);
+    } else {
+      suggestionsBox.innerHTML = '<div class="suggestion-loading">見つかりませんでした。地図をタップして登録できます</div>';
     }
   }
 
   async function searchOverpass(query) {
-    const center = map.getCenter();
-    const bboxNear = `${center.lat-1},${center.lng-1},${center.lat+1},${center.lng+1}`;
-    const escaped = query.replace(/"/g, '\\"');
-    const overpassQuery = `[out:json][timeout:12];
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10000);
+    try {
+      const center = map.getCenter();
+      const bboxNear = `${center.lat-1},${center.lng-1},${center.lat+1},${center.lng+1}`;
+      const escaped = query.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const overpassQuery = `[out:json][timeout:10];
 (
-  node["name"~"${escaped}",i]["amenity"~"hospital|clinic|dentist|doctors|pharmacy"](${bboxNear});
-  way["name"~"${escaped}",i]["amenity"~"hospital|clinic|dentist|doctors|pharmacy"](${bboxNear});
-  node["name"~"${escaped}",i]["amenity"~"hospital|clinic|dentist|doctors|pharmacy"](24.0,122.0,46.0,146.0);
-  way["name"~"${escaped}",i]["amenity"~"hospital|clinic|dentist|doctors|pharmacy"](24.0,122.0,46.0,146.0);
+  node["name"~"${escaped}",i]["amenity"](${bboxNear});
+  way["name"~"${escaped}",i]["amenity"](${bboxNear});
+  node["name"~"${escaped}",i]["amenity"](24.0,122.0,46.0,146.0);
+  way["name"~"${escaped}",i]["amenity"](24.0,122.0,46.0,146.0);
 );
 out center 8;`;
-    const res = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: overpassQuery });
-    const data = await res.json();
-    const seen = new Set();
-    return data.elements
-      .map(el => ({
-        lat: el.lat ?? el.center?.lat, lng: el.lon ?? el.center?.lon,
-        name: el.tags?.name || query,
-        addr: [el.tags?.['addr:city'], el.tags?.['addr:suburb']].filter(Boolean).join(' '),
-      }))
-      .filter(r => r.lat && r.lng && !seen.has(r.name) && seen.add(r.name))
-      .sort((a, b) => dist(a, center) - dist(b, center))
-      .slice(0, 6);
+      const res = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST', body: overpassQuery, signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      const data = await res.json();
+      const center2 = map.getCenter();
+      const seen = new Set();
+      return data.elements
+        .map(el => ({
+          lat: el.lat ?? el.center?.lat, lng: el.lon ?? el.center?.lon,
+          name: el.tags?.name || query,
+          addr: [el.tags?.['addr:city'], el.tags?.['addr:suburb']].filter(Boolean).join(' '),
+        }))
+        .filter(r => r.lat && r.lng && !seen.has(r.name) && seen.add(r.name))
+        .sort((a, b) => dist(a, center2) - dist(b, center2))
+        .slice(0, 6);
+    } catch (e) {
+      clearTimeout(timer);
+      return [];
+    }
   }
 
   async function searchNominatim(query) {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=jp&limit=5&addressdetails=1&namedetails=1`;
-    const res = await fetch(url, { headers: { 'Accept-Language': 'ja' } });
-    const data = await res.json();
-    return data.map(item => ({
-      lat: parseFloat(item.lat), lng: parseFloat(item.lon),
-      name: item.namedetails?.name || item.display_name.split(',')[0],
-      addr: item.display_name,
-    }));
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=jp&limit=6&addressdetails=1&namedetails=1`;
+      const res = await fetch(url, { headers: { 'Accept-Language': 'ja' }, signal: ctrl.signal });
+      clearTimeout(timer);
+      const data = await res.json();
+      return data.map(item => ({
+        lat: parseFloat(item.lat), lng: parseFloat(item.lon),
+        name: item.namedetails?.name || item.display_name.split(',')[0],
+        addr: item.display_name,
+      }));
+    } catch (e) {
+      clearTimeout(timer);
+      return [];
+    }
   }
 
   function dist(a, center) {
