@@ -1,7 +1,7 @@
 {
-  "name": "病院訪問管理",
-  "short_name": "病院管理",
-  "description": "病院の訪問記録を管理するアプリ",
+  "name": "施設訪問管理アプリVer1.0",
+  "short_name": "施設訪問管理",
+  "description": "施設の訪問記録を管理するアプリ",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f0f4f8",
