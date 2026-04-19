@@ -669,13 +669,14 @@
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 10000);
     try {
-      const center = map.getCenter();
-      const bboxNear = `${center.lat-1},${center.lng-1},${center.lat+1},${center.lng+1}`;
+      // 地図の現在表示範囲をそのまま検索エリアに使う
+      const b = map.getBounds();
+      const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
       const escaped = query.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
       const overpassQuery = `[out:json][timeout:10];
 (
-  node["name"~"${escaped}",i]["amenity"](${bboxNear});
-  way["name"~"${escaped}",i]["amenity"](${bboxNear});
+  node["name"~"${escaped}",i]["amenity"](${bbox});
+  way["name"~"${escaped}",i]["amenity"](${bbox});
 );
 out center 8;`;
       const res = await fetch('https://overpass-api.de/api/interpreter', {
@@ -683,7 +684,7 @@ out center 8;`;
       });
       clearTimeout(timer);
       const data = await res.json();
-      const center2 = map.getCenter();
+      const center = map.getCenter();
       const seen = new Set();
       return data.elements
         .map(el => ({
@@ -692,7 +693,7 @@ out center 8;`;
           addr: [el.tags?.['addr:city'], el.tags?.['addr:suburb']].filter(Boolean).join(' '),
         }))
         .filter(r => r.lat && r.lng && !seen.has(r.name) && seen.add(r.name))
-        .sort((a, b) => dist(a, center2) - dist(b, center2))
+        .sort((a, b) => dist(a, center) - dist(b, center))
         .slice(0, 6);
     } catch (e) {
       clearTimeout(timer);
@@ -704,9 +705,9 @@ out center 8;`;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
     try {
-      const c = map.getCenter();
-      const d = 1.0; // 現在地±1度以内に絞る
-      const viewbox = `${c.lng-d},${c.lat+d},${c.lng+d},${c.lat-d}`;
+      // 地図の現在表示範囲に限定（bounded=1で厳密に絞る）
+      const b = map.getBounds();
+      const viewbox = `${b.getWest()},${b.getNorth()},${b.getEast()},${b.getSouth()}`;
       const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=jp&limit=6&addressdetails=1&namedetails=1&viewbox=${viewbox}&bounded=1`;
       const res = await fetch(url, { headers: { 'Accept-Language': 'ja' }, signal: ctrl.signal });
       clearTimeout(timer);
