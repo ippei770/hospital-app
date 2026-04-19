@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>施設訪問管理アプリVer1.0</title>
+  <title>施設訪問管理アプリVer1.2</title>
 
   <!-- PWA -->
   <link rel="manifest" href="manifest.json">
@@ -455,7 +455,7 @@
 
 <header>
   <span>🏥</span>
-  <h1>施設訪問管理アプリVer1.0</h1>
+  <h1>施設訪問管理アプリVer1.2</h1>
   <div class="header-buttons">
     <button class="header-btn" onclick="updateGPS()" title="現在地に移動">📍 GPS</button>
     <button class="header-btn" onclick="clearCache()" title="キャッシュ削除">🗑 更新</button>
@@ -605,7 +605,8 @@
   }
 
   // ===================== MAP (Leaflet + OpenStreetMap) =====================
-  const map = L.map('map', { zoomControl: true }).setView([35.6814, 139.7670], 13);
+  const map = L.map('map', { zoomControl: false }).setView([35.6814, 139.7670], 13);
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
