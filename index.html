@@ -392,6 +392,48 @@
     .dc-date { font-weight: 600; color: #1a3a5c; font-size: 0.78rem; }
     .dc-visitor { font-size: 0.68rem; color: #888; margin-top: 1px; }
 
+    /* SETTINGS TAB */
+    #settings-tab { overflow-y: auto; }
+    .settings-wrap { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+    .settings-card {
+      background: white;
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+    }
+    .settings-card-danger { border: 1.5px solid #fecaca; }
+    .settings-card-icon { font-size: 1.8rem; flex-shrink: 0; }
+    .settings-card-body { flex: 1; }
+    .settings-card-title { font-weight: 700; font-size: 0.95rem; color: #1a3a5c; margin-bottom: 5px; }
+    .settings-card-desc { font-size: 0.82rem; color: #666; margin-bottom: 12px; line-height: 1.5; }
+    .settings-btn {
+      display: inline-block;
+      padding: 9px 18px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+      text-align: center;
+    }
+    .settings-btn-primary { background: #2c7be5; color: white; }
+    .settings-btn-primary:hover { background: #1a56c4; }
+    .settings-btn-danger { background: #fee2e2; color: #dc2626; }
+    .settings-btn-danger:hover { background: #fecaca; }
+    .settings-info {
+      background: #f0f4f8;
+      border-radius: 12px;
+      padding: 14px 16px;
+      font-size: 0.82rem;
+      color: #555;
+      line-height: 1.8;
+    }
+
     .toast {
       position: fixed;
       bottom: 24px;
@@ -424,6 +466,7 @@
   <button class="tab-btn active" onclick="switchTab('map')">🗺️ 地図</button>
   <button class="tab-btn" onclick="switchTab('table')">📊 一覧表示</button>
   <button class="tab-btn" onclick="switchTab('list')">📋 訪問履歴</button>
+  <button class="tab-btn" onclick="switchTab('settings')">⚙️ 設定</button>
 </div>
 
 <!-- MAP TAB -->
@@ -460,6 +503,47 @@
 <!-- TABLE TAB -->
 <div id="table-tab" class="tab-content">
   <div id="hospital-table-wrap"></div>
+</div>
+
+<!-- SETTINGS TAB -->
+<div id="settings-tab" class="tab-content">
+  <div class="settings-wrap">
+
+    <div class="settings-card">
+      <div class="settings-card-icon">📤</div>
+      <div class="settings-card-body">
+        <div class="settings-card-title">エクスポート（バックアップ）</div>
+        <div class="settings-card-desc">施設・訪問記録をJSONファイルに保存します。iPhoneのデータ消失対策にお使いください。</div>
+        <button class="settings-btn settings-btn-primary" onclick="exportData()">ファイルをダウンロード</button>
+      </div>
+    </div>
+
+    <div class="settings-card">
+      <div class="settings-card-icon">📥</div>
+      <div class="settings-card-body">
+        <div class="settings-card-title">インポート（復元）</div>
+        <div class="settings-card-desc">バックアップファイルからデータを復元します。現在のデータは上書きされます。</div>
+        <label class="settings-btn settings-btn-primary" style="cursor:pointer;">
+          ファイルを選択して復元
+          <input type="file" accept=".json" onchange="importData(event)" style="display:none;">
+        </label>
+      </div>
+    </div>
+
+    <div class="settings-card settings-card-danger">
+      <div class="settings-card-icon">🗑️</div>
+      <div class="settings-card-body">
+        <div class="settings-card-title">データをすべて削除</div>
+        <div class="settings-card-desc">登録施設・訪問記録をすべて削除します。この操作は元に戻せません。</div>
+        <button class="settings-btn settings-btn-danger" onclick="deleteAllData()">すべて削除する</button>
+      </div>
+    </div>
+
+    <div class="settings-info">
+      <div id="settings-stats"></div>
+    </div>
+
+  </div>
 </div>
 
 <!-- MODAL: 病院登録 -->
@@ -627,14 +711,26 @@
   const suggestionsBox = document.getElementById('search-suggestions');
   let searchTimer = null;
 
+  let isComposing = false;
+  searchInput.addEventListener('compositionstart', () => { isComposing = true; });
+  searchInput.addEventListener('compositionend', () => {
+    isComposing = false;
+    triggerSearch();
+  });
+
   searchInput.addEventListener('input', () => {
+    if (isComposing) return;
+    triggerSearch();
+  });
+
+  function triggerSearch() {
     clearTimeout(searchTimer);
     const q = searchInput.value.trim();
     if (!q) { hideSuggestions(); return; }
-    suggestionsBox.innerHTML = '<div class="suggestion-loading">検索中...</div>';
+    suggestionsBox.innerHTML = '<div class="suggestion-loading">検索中（5秒後）...</div>';
     suggestionsBox.classList.add('open');
     searchTimer = setTimeout(() => searchPlaces(q), 5000);
-  });
+  }
 
   searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') hideSuggestions();
@@ -665,23 +761,29 @@
     }
   }
 
+  function getMapBbox(minDelta = 0.3) {
+    // 地図の表示範囲を取得（最低±0.3度を確保）
+    const b = map.getBounds();
+    const c = map.getCenter();
+    return {
+      south: Math.min(b.getSouth(), c.lat - minDelta),
+      north: Math.max(b.getNorth(), c.lat + minDelta),
+      west:  Math.min(b.getWest(),  c.lng - minDelta),
+      east:  Math.max(b.getEast(),  c.lng + minDelta),
+    };
+  }
+
   async function searchOverpass(query) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 10000);
     try {
-      // 地図の現在表示範囲をそのまま検索エリアに使う
-      const b = map.getBounds();
-      const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
+      const { south, west, north, east } = getMapBbox();
+      const bbox = `${south},${west},${north},${east}`;
       const escaped = query.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      const overpassQuery = `[out:json][timeout:10];
-(
-  node["name"~"${escaped}",i]["amenity"](${bbox});
-  way["name"~"${escaped}",i]["amenity"](${bbox});
-);
-out center 8;`;
-      const res = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST', body: overpassQuery, signal: ctrl.signal,
-      });
+      const overpassQuery = `[out:json][timeout:10];(node["name"~"${escaped}",i]["amenity"](${bbox});way["name"~"${escaped}",i]["amenity"](${bbox}););out center 8;`;
+      // iOSでPOSTが失敗することがあるためGETで送信
+      const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
+      const res = await fetch(url, { signal: ctrl.signal });
       clearTimeout(timer);
       const data = await res.json();
       const center = map.getCenter();
@@ -705,14 +807,25 @@ out center 8;`;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
     try {
-      // 地図の現在表示範囲に限定（bounded=1で厳密に絞る）
-      const b = map.getBounds();
-      const viewbox = `${b.getWest()},${b.getNorth()},${b.getEast()},${b.getSouth()}`;
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=jp&limit=6&addressdetails=1&namedetails=1&viewbox=${viewbox}&bounded=1`;
-      const res = await fetch(url, { headers: { 'Accept-Language': 'ja' }, signal: ctrl.signal });
+      const { south, west, north, east } = getMapBbox();
+      const viewbox = `${west},${north},${east},${south}`;
+      // まず表示範囲内で検索、結果がなければ範囲を外して再検索
+      const urlBounded = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=jp&limit=6&addressdetails=1&namedetails=1&viewbox=${viewbox}&bounded=1`;
+      const res1 = await fetch(urlBounded, { headers: { 'Accept-Language': 'ja' }, signal: ctrl.signal });
       clearTimeout(timer);
-      const data = await res.json();
-      return data.map(item => ({
+      const data1 = await res1.json();
+      if (data1.length > 0) {
+        return data1.map(item => ({
+          lat: parseFloat(item.lat), lng: parseFloat(item.lon),
+          name: item.namedetails?.name || item.display_name.split(',')[0],
+          addr: item.display_name,
+        }));
+      }
+      // 範囲内に見つからなければbounded外して再検索
+      const urlFree = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=jp&limit=4&addressdetails=1&namedetails=1`;
+      const res2 = await fetch(urlFree, { headers: { 'Accept-Language': 'ja' } });
+      const data2 = await res2.json();
+      return data2.map(item => ({
         lat: parseFloat(item.lat), lng: parseFloat(item.lon),
         name: item.namedetails?.name || item.display_name.split(',')[0],
         addr: item.display_name,
@@ -928,14 +1041,80 @@ out center 8;`;
   function switchTab(tab) {
     document.querySelectorAll('.tab-btn').forEach((btn, i) => {
       btn.classList.toggle('active',
-        (i === 0 && tab === 'map') || (i === 1 && tab === 'table') || (i === 2 && tab === 'list'));
+        (i === 0 && tab === 'map') || (i === 1 && tab === 'table') ||
+        (i === 2 && tab === 'list') || (i === 3 && tab === 'settings'));
     });
     document.getElementById('map-tab').classList.toggle('active', tab === 'map');
     document.getElementById('list-tab').classList.toggle('active', tab === 'list');
     document.getElementById('table-tab').classList.toggle('active', tab === 'table');
+    document.getElementById('settings-tab').classList.toggle('active', tab === 'settings');
     if (tab === 'map') { setTimeout(() => map.invalidateSize(), 100); }
     else if (tab === 'list') { renderList(); }
-    else { renderTable(); }
+    else if (tab === 'table') { renderTable(); }
+    else { renderSettingsStats(); }
+  }
+
+  // ===================== SETTINGS =====================
+  function renderSettingsStats() {
+    document.getElementById('settings-stats').innerHTML =
+      `📊 現在のデータ：施設 <strong>${hospitals.length}件</strong>、訪問記録 <strong>${visits.length}件</strong>`;
+  }
+
+  function exportData() {
+    if (!hospitals.length && !visits.length) { showToast('エクスポートするデータがありません'); return; }
+    const data = { version: 1, exportDate: new Date().toISOString(), hospitals, visits };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const date = new Date().toLocaleDateString('ja-JP').replace(/\//g, '-');
+    a.href = url;
+    a.download = `施設訪問データ_${date}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('エクスポートしました');
+  }
+
+  function importData(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (!Array.isArray(data.hospitals) || !Array.isArray(data.visits)) {
+          showToast('ファイルの形式が正しくありません'); return;
+        }
+        if (!confirm(`施設 ${data.hospitals.length}件・訪問記録 ${data.visits.length}件をインポートします。\n現在のデータは上書きされます。よろしいですか？`)) return;
+        // マーカーをすべて削除
+        Object.values(markers).forEach(m => m.remove());
+        markers = {}; tooltips = {};
+        hospitals = data.hospitals;
+        visits = data.visits;
+        saveData();
+        hospitals.forEach(addMarker);
+        updateFilterOptions();
+        renderList();
+        renderTable();
+        renderSettingsStats();
+        showToast(`インポート完了：施設 ${hospitals.length}件・訪問 ${visits.length}件`);
+      } catch { showToast('ファイルの読み込みに失敗しました'); }
+      event.target.value = '';
+    };
+    reader.readAsText(file);
+  }
+
+  function deleteAllData() {
+    if (!hospitals.length && !visits.length) { showToast('削除するデータがありません'); return; }
+    if (!confirm(`施設 ${hospitals.length}件・訪問記録 ${visits.length}件をすべて削除します。\nこの操作は元に戻せません。よろしいですか？`)) return;
+    Object.values(markers).forEach(m => m.remove());
+    markers = {}; tooltips = {};
+    hospitals = []; visits = [];
+    saveData();
+    updateFilterOptions();
+    renderList();
+    renderTable();
+    renderSettingsStats();
+    showToast('すべてのデータを削除しました');
   }
 
   // ===================== GPS・キャッシュ =====================
