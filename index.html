@@ -781,9 +781,9 @@
       const bbox = `${south},${west},${north},${east}`;
       const escaped = query.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
       const overpassQuery = `[out:json][timeout:10];(node["name"~"${escaped}",i]["amenity"](${bbox});way["name"~"${escaped}",i]["amenity"](${bbox}););out center 8;`;
-      // iOSでPOSTが失敗することがあるためGETで送信
+      // iOSでPOSTが失敗することがあるためGETで送信（modeとcacheを明示）
       const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
-      const res = await fetch(url, { signal: ctrl.signal });
+      const res = await fetch(url, { signal: ctrl.signal, mode: 'cors', cache: 'no-store' });
       clearTimeout(timer);
       const data = await res.json();
       const center = map.getCenter();
@@ -810,8 +810,8 @@
       const { south, west, north, east } = getMapBbox();
       const viewbox = `${west},${north},${east},${south}`;
       // まず表示範囲内で検索、結果がなければ範囲を外して再検索
-      const urlBounded = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=jp&limit=6&addressdetails=1&namedetails=1&viewbox=${viewbox}&bounded=1`;
-      const res1 = await fetch(urlBounded, { headers: { 'Accept-Language': 'ja' }, signal: ctrl.signal });
+      const urlBounded = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=jp&limit=6&addressdetails=1&namedetails=1&viewbox=${viewbox}&bounded=1&accept-language=ja`;
+      const res1 = await fetch(urlBounded, { mode: 'cors', cache: 'no-store', signal: ctrl.signal });
       clearTimeout(timer);
       const data1 = await res1.json();
       if (data1.length > 0) {
@@ -822,8 +822,8 @@
         }));
       }
       // 範囲内に見つからなければbounded外して再検索
-      const urlFree = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=jp&limit=4&addressdetails=1&namedetails=1`;
-      const res2 = await fetch(urlFree, { headers: { 'Accept-Language': 'ja' } });
+      const urlFree = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=jp&limit=4&addressdetails=1&namedetails=1&accept-language=ja`;
+      const res2 = await fetch(urlFree, { mode: 'cors', cache: 'no-store' });
       const data2 = await res2.json();
       return data2.map(item => ({
         lat: parseFloat(item.lat), lng: parseFloat(item.lon),

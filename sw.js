@@ -23,6 +23,15 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  const url = new URL(e.request.url);
+
+  // 外部APIへのリクエスト（Overpass / Nominatim / タイル等）は
+  // サービスワーカーが一切介入しない → ブラウザが直接通信
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  // 同一オリジン（アプリ本体）のみキャッシュ戦略を適用
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request))
   );
